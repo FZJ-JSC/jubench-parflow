@@ -1,0 +1,66 @@
+#!/bin/bash
+set -exo pipefail
+
+#################################################################
+# 1. DEFINE YOUR DIRECTORIES HERE (no need to touch other stuff)
+#################################################################
+export PARFLOW_DIR=#PATH#/pfdir_gpu_S#STAGES#_#COMPILER#_#MPI#/install
+export PFDIR=#PATH#/pfdir_gpu_S#STAGES#_#COMPILER#_#MPI#
+export RMM_ROOT=$PFDIR/rmm
+export BUILD_DIR=$PFDIR/build 
+#################################################################
+
+# 2. Load modules
+ml Stages/#STAGES# #COMPILER# #MPI# #MISC_MODULES#
+
+# 3. Create directories
+mkdir -p $PARFLOW_DIR
+mkdir -p $PFDIR
+mkdir -p $BUILD_DIR
+
+# 4. Download RapidsAI RMM pool allocator
+cd $PFDIR
+git clone -b branch-0.10 --single-branch --recurse-submodules https://github.com/hokkanen/rmm.git
+
+# 5. Compile RapidsAI RMM pool allocator
+rm -rf $RMM_ROOT/build/
+mkdir $RMM_ROOT/build/
+cd $RMM_ROOT/build/
+cmake .. -DCMAKE_INSTALL_PREFIX=$RMM_ROOT
+make -j 4
+make install
+
+# 6. Test if RMM installation successful (still in 'build' directory, needs GPU access)
+#srun make test
+
+# 7. Download ParflowCUDA from Git repo
+cd $PFDIR
+git clone https://github.com/parflow/parflow.git
+
+# 8. Compile Parflow
+rm -rf $PFDIR/build/
+mkdir $PFDIR/build/
+cd $BUILD_DIR
+CC=mpicc CXX=mpicxx FC=mpif90 cmake ../parflow \
+	-DMPIEXEC_EXECUTABLE=$(which srun) \
+       	-DPARFLOW_AMPS_LAYER=mpi1 \
+	-DCMAKE_C_FLAGS='-fopenmp -Wall -Werror -Wno-unused-result -Wno-unused-function' \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DPARFLOW_ENABLE_TIMING=TRUE \
+	-DPARFLOW_HAVE_CLM=ON \
+	-DCMAKE_INSTALL_PREFIX=${PARFLOW_DIR} \
+	-DPARFLOW_ENABLE_NETCDF=TRUE \
+	-DNETCDF_DIR=$EBROOTNETCDF \
+	-DTCL_TCLSH=${EBROOTTCL}/bin/tclsh8.6 \
+	-DPARFLOW_AMPS_SEQUENTIAL_IO=on \
+	-DPARFLOW_ENABLE_SLURM=TRUE \
+	-DPARFLOW_ACCELERATOR_BACKEND=cuda \
+	-DRMM_ROOT=$RMM_ROOT \
+	-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared
+
+make -j 4
+make install
+
+# 9. Test if Parflow installation successful (still in 'build' directory, needs GPU access)
+set +exo pipefail
+#make test

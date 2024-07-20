@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""
+Created on 2022-07-28
+"""
+
+# Script to read netCDF files into Python
+# https://joehamman.com/2013/10/12/plotting-netCDF-data-with-Python/
+
+
+import os
+from netCDF4 import Dataset
+import numpy as np
+from IPython import get_ipython      # To reset variables
+#get_ipython().magic('reset -sf')     # To reset variables
+
+
+# Inputs
+nt = 1;                    # time steps without initial time step 0000
+nmc = 1;
+
+# Read one file to obtain size and variables  
+#nc_file = 'C:/0_Ana_Julich/2_PROJECTS/1_Parflow_example/1_MC_samples/Read_nc_outputs/0/forsyth2.out.00000.nc'
+nc_file = '#NAME#.out.00000.nc'
+fh = Dataset(nc_file, mode='r')
+
+
+temp = fh.variables['pressure'][:]
+#t_sat = fh.variables['saturation'][:]
+
+
+fh.close()
+
+# Initiate matrices
+x,y,z,k=temp.shape
+nx = x*y*z*k                 # size column vector
+pre = np.empty((nx,1,))
+sat = np.empty((nx,1,))
+
+pre.fill(np.nan)
+sat.fill(np.nan)
+
+# loop nmc r=1:nmc
+    # loop time t=0:n_time
+        # for r=1 t=0 read P, S. Then write it in a column vector
+        # proceed with next time
+    # proceed with next realization
+# end
+
+directory = "#PATHNC#"
+
+#for root, subdirectories, files in os.walk(directory):
+#    for subdirectory in subdirectories:
+#        print(os.path.join(root, subdirectory))
+#    for file in files:
+#        print(os.path.join(root, file))
+               
+for i in range(nmc):
+    name1 = str(i)
+    for t in range(nt+1):
+
+        if t < 10:
+#            name2 = '/clayLmod_strong.out.0000' ## for nmc
+            name2 = '#NAME#.out.0000'
+            
+        elif t > 9 and t < 100:
+#            name2 = '/clayLmod_strong.out.000'  ## for nmc
+            name2 = '#NAME#.out.000'
+        
+        name3 = str(t)
+        name4 = '.nc'
+        name =  name2 + name3 + name4
+#        name = name1 + name2 + name3 + name4        ## for nmc
+#        print(name)
+    
+        fh = Dataset(name, mode='r')
+        t_pre = fh.variables['pressure'][:]
+        t_sat = fh.variables['saturation'][:]
+    
+        pre2 = t_pre.reshape(nx,1)
+        sat2 = t_sat.reshape(nx,1)
+        
+        pre = np.append(pre,pre2,axis=1)         # pre needs to be predefined
+        sat = np.append(sat,sat2,axis=1)
+    #    pre = np.concatenate(pre,pre2,axis=1)   # pre needs to be predefined
+    #    pre = np.hstack(pre,pre2,axis=1)        # pre needs to be predefined
+    
+    pre = pre[:,1::]
+    sat = sat[:,1::]
+    name_p = 'Pressure'      #'Results/Pressure'
+    name_s = 'Saturation'    #'Results/Saturation'
+    name_end = '.csv'
+    namefile_p = name_p + name_end
+    namefile_s = name_s + name_end   
+#    namefile_p = name_p + name1 + name_end     ## for nmc
+#    namefile_s = name_s + name1 + name_end     ## for nmc
+ 
+#    print(namefile_p)
+#    print(namefile_s)    
+    
+    with open(namefile_p, 'wb') as f:
+        np.savetxt(f, pre)
+    with open(namefile_s, 'wb') as f:        
+        np.savetxt(f, sat)
+
+
+#READYNC#

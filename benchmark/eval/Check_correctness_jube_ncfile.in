@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""
+Created on 2022-07-28
+
+This version includes the reference information (it can be different from the current one).
+It creates transversal plots of pressure and saturation.
+It compares four single columns of one simulation with the reference case.
+It calculates the L2_norm and saves it in a text file "L2_norm_errors.txt".
+
+"""
+
+#from mpl_toolkits import mplot3d
+
+# Best lib ever 
+import numpy as np
+# For plotting
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import pandas as pd
+
+
+# My tool collection located in GitLab:
+# sloth: https://icg4geo.icg.kfa-juelich.de/SoftwareTools/SLOTH
+# sloth.IO: https://icg4geo.icg.kfa-juelich.de/SoftwareTools/SLOTH/-/blob/master/sloth/IO.py
+#import sloth.IO
+
+# 3D fields
+# claymod2 Run_000079 time end= 24h, delta_t_results= 2h, output12= 24h = 1d
+# claymod2 Run_000080 time end= 72h, delta_t_results= 12h, output6= 72h = 3d
+# claymod2 Run_000081 time end= 240h, delta_t_results= 24h, output10= 240h = 10d
+# claymod2 Run_000082 time end= 2400h, delta_t_results= 600h, output4= 2400h = 100d
+# claymod2 Run_000083 time end= 4800h, delta_t_results= 1200h, output4= 4800h = 200d
+# claymod2 Run_000088 time end= 17520, delta_t_results= 8760h, output2= 8760h = 1y   -->
+# claymod2 Run_000088 time end= 17520, delta_t_results= 8760h, output2= 17520h = 2y
+
+# Introduce variables
+XMIN = #XMIN#          # minimum x-coord for taking observation
+XMAX = #XMAX#          # maximum x-coord for taking observation
+XMINREF = #XMINREF#    # minimum x-coord for taking observation for the reference case
+XMAXREF = #XMAXREF#    # maximum x-coord for taking observation for the reference case
+
+NXREF = #NXCELLSREF#   # lateral cells x-coord of the reference case
+NX = #NXCELLS#         # lateral cells x-coord, this value changes
+
+NYREF = NXREF          # lateral cells y-coord of the reference case 
+NY = NX                # lateral cells y-coord, this value changes
+NZ = 240               # cells z-coord, this value is fix for all sims
+DX = 1                 # deltax in parflow file is 1 m
+DY = 1                 # deltay in parflow file is 1 m
+NODES=#NODES#          # number of nodes
+SPLIT=#SPLIT#          # splits or lateral-gpus per node
+
+# Calculate position of single columns
+delta = int(NX/(NODES*SPLIT*2))
+CX_min = int(XMIN/DX)    # cell minimum for observation
+CX_max = int(XMAX/DX)    # cell maximum for observation
+CX_minref = int(XMINREF/DX)    # cell minimum for observation
+CX_maxref = int(XMAXREF/DX)    # cell maximum for observation
+
+# Introduce path to 3D field
+# Initial time
+#dataFile = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000079/000001_RUN/work/clayLmod2.out.press.00000.pfb"
+#dataFile0 = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000079/000001_RUN/work/clayLmod2.out.satur.00000.pfb"
+
+# Read reference Pressure and Saturation  CHANGE PATHWAY TO FILE
+preRef = pd.read_csv("#PATHREF#/Pressure.csv", header=None, sep=" ")    # Includes initial and end times ***Reference this needs to be changed
+satRef = pd.read_csv("#PATHREF#/Saturation.csv", header=None, sep=" ")  # Includes initial and end times ***Reference this needs to be changed
+# Read Pressure and Saturation
+pre = pd.read_csv("Pressure.csv", header=None, sep=" ")    # Includes initial and end times
+sat = pd.read_csv("Saturation.csv", header=None, sep=" ")  # Includes initial and end times
+
+dataFile0 = pre.iloc[:,0]
+dataFile1 = sat.iloc[:,0]
+
+# Read pressure time=end
+#dataFile2 = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000088/000001_RUN/work/clayLmod2.out.press.00002.pfb"
+#dataFile3 = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000088/000002_RUN/work/clayLmod2.out.press.00002.pfb"
+dataFile2 = preRef.iloc[:,1]  ## 
+dataFile3 = pre.iloc[:,1]     ##
+
+# Read saturation time=end
+#dataFile4 = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000088/000001_RUN/work/clayLmod2.out.satur.00002.pfb"
+#dataFile5 = "/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/3_Jube/bench_run/000088/000002_RUN/work/clayLmod2.out.satur.00002.pfb"
+dataFile4 = satRef.iloc[:,1]  ## 
+dataFile5 = sat.iloc[:,1]     ##
+
+# Convert dataframe to array
+data0=dataFile0.to_numpy()
+data1=dataFile1.to_numpy()
+data2=dataFile2.to_numpy()
+data3=dataFile3.to_numpy()
+data4=dataFile4.to_numpy()
+data5=dataFile5.to_numpy()
+
+# Reshape data
+data0 =data0.reshape(NZ, NY, NX)
+data1 =data1.reshape(NZ, NY, NX)
+data2 =data2.reshape(NZ, NYREF, NXREF)
+data3 =data3.reshape(NZ, NY, NX)
+data4 =data4.reshape(NZ, NYREF, NXREF)
+data5 =data5.reshape(NZ, NY, NX)
+
+# List coordinates with number of cells
+xlist=np.arange(1, NX+1, 1)        ##ag
+ylist=np.arange(1, NY+1, 1)        ##ag
+zlist=np.linspace(0, 6, num=NZ)    ##ag
+
+X,Y = np.meshgrid(xlist, ylist)    ##ag
+X,Z = np.meshgrid(xlist, zlist)    ##ag
+Y,Z = np.meshgrid(ylist, zlist)    ##ag
+
+# List coordinates with number of cells reference
+xlistr=np.arange(1, NXREF+1, 1)        ##ag
+ylistr=np.arange(1, NYREF+1, 1)        ##ag
+zlistr=np.linspace(0, 6, num=NZ)    ##ag
+
+XR,YR = np.meshgrid(xlistr, ylistr)    ##ag
+XR,ZR = np.meshgrid(xlistr, zlistr)    ##ag
+YR,ZR = np.meshgrid(ylistr, zlistr)    ##ag
+
+## PLOTS FOR INITIAL TIME: DATA PRESSURE DATA0**********************************************************************************************
+# Set Z, Y, and X to some values
+# Slice a 2D cross section along x direction (fix y coord)
+P_Xcs0 = data0[:,100,:]
+
+# Slice a 2D cross section along y direction (fix x coord)
+P_Ycs0 = data0[:,:,100] #crossSection = data[...,X]
+
+# Slice a 1D collumn (all z values for given x and y coord)
+sCol10 = data0[:,CX_min,CX_min]  # single column 1
+sCol20 = data0[:,CX_min,CX_max]  # single column 2
+sCol30 = data0[:,CX_max,CX_min]  # single column 3
+sCol40 = data0[:,CX_max,CX_max]  # single column 4
+
+# 2D cross section along x direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(Y, Z, P_Xcs0)
+#plt.colorbar(label='digit value')
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Pressure t=0 2D cross section along x direction')
+ax.set_xlabel('x (m)')
+ax.set_ylabel('z (m)')
+#vmin=-4, vmax=4)
+#plt.show()
+plt.savefig('PRE_t=0_2D_cs_xdir.png', dpi=150)
+#plt.savefig('/p/project/cslts/gonzalez5/Parflow_gpu/Stage2022/4_ProcessResults_correctness/2D_cs_xdir.png', dpi=150)
+
+# 2D cross section along y direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(X, Z, P_Ycs0)
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Pressure t=0 2D cross section along y direction')
+ax.set_xlabel('y (m)')
+ax.set_ylabel('z (m)')
+#plt.show()
+plt.savefig('PRE_t=0_2D_cs_ydir.png', dpi=150)
+
+# singleColumn
+fig,ax=plt.subplots()                               # Create a figure containing a single axes
+ax.plot(sCol10, zlist, label='col_1') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol20, zlist, label='col_2')
+ax.plot(sCol30, zlist, label='col_3')
+ax.plot(sCol40, zlist, label='col_4')
+ax.set_ylabel('z (m)')
+ax.set_xlabel('Pressure (m)')
+ax.set_title("Pressure t=0, 4 single columns")
+ax.legend()
+#plt.ylabel('z (m)')
+#plt.xlabel('Pressure (m)')
+#col1_legend = ax.legend(handles=[line1], loc='upper right')
+#ax.legend(labels='column 1')
+#plt.show()
+plt.savefig('PRE_t=0_SingleColumns.png', dpi=150)
+
+
+## PLOTS FOR INITIAL TIME SATURATION DATA1    **********************************************************************************
+# Set Z, Y, and X to some values
+# Slice a 2D cross section along x direction (fix y coord)
+P_Xcs1 = data1[:,100,:]
+
+# Slice a 2D cross section along y direction (fix x coord)
+P_Ycs1 = data1[:,:,100] #crossSection = data[...,X]
+
+# Slice a 1D collumn (all z values for given x and y coord) DATA1
+sCol11 = data1[:,CX_min,CX_min]  # single column 1
+sCol21 = data1[:,CX_min,CX_max]  # single column 2
+sCol31 = data1[:,CX_max,CX_min]  # single column 3
+sCol41 = data1[:,CX_max,CX_max]  # single column 4
+
+# Do some plotting
+# 2D cross section along x direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(Y, Z, P_Xcs1)
+#plt.colorbar(label='digit value')
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Saturation t=0 2D cross section along x direction')
+ax.set_xlabel('x (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0)
+#plt.show()
+plt.savefig('SAT_t=0_2D_cs_xdir.png', dpi=150)
+
+# 2D cross section along y direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(X, Z, P_Ycs1)
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Saturation t=0 2D cross section along y direction')
+ax.set_xlabel('y (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0) 
+#plt.show()
+plt.savefig('SAT_t=0_2D_cs_ydir.png', dpi=150)
+
+# singleColumn
+fig,ax=plt.subplots()                               # Create a figure containing a single axes
+ax.plot(sCol11, zlist, label='col_1') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol21, zlist, label='col_2')
+ax.plot(sCol31, zlist, label='col_3')
+ax.plot(sCol41, zlist, label='col_4')
+ax.set_ylabel('z (m)')
+ax.set_xlabel('Saturation (m)')
+ax.set_title("Saturation t=0, 4 single columns")
+ax.set_xlim(0, 1)
+ax.legend()
+#plt.ylabel('z (m)')
+#plt.xlabel('Pressure (m)')
+#col1_legend = ax.legend(handles=[line1], loc='upper right')
+#ax.legend(labels='column 1')
+#plt.show()
+plt.savefig('SAT_t=0_SingleColumns.png', dpi=150)
+
+
+
+## PLOTS FOR END TIME PRESSURE DATA2-ref and DATA3 ********************************************************************************
+# Set Z, Y, and X to some values
+# Slice a 2D cross section along x direction (fix y coord)
+P_Xcs3 = data3[:,100,:]
+
+# Slice a 2D cross section along y direction (fix x coord)
+P_Ycs3 = data3[:,:,100] #crossSection = data[...,X]
+
+# Slice a 1D collumn (all z values for given x and y coord) DATA2ref
+sCol12 = data2[:,CX_minref,CX_minref]  # single column 1
+sCol22 = data2[:,CX_minref,CX_maxref]  # single column 2
+sCol32 = data2[:,CX_maxref,CX_minref]  # single column 3
+sCol42 = data2[:,CX_maxref,CX_maxref]  # single column 4
+
+
+# Slice a 1D collumn (all z values for given x and y coord) DATA3
+sCol13 = data3[:,CX_min,CX_min]  # single column 1
+sCol23 = data3[:,CX_min,CX_max]  # single column 2
+sCol33 = data3[:,CX_max,CX_min]  # single column 3
+sCol43 = data3[:,CX_max,CX_max]  # single column 4
+
+
+# Do some plotting
+# 2D cross section along x direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(Y, Z, P_Xcs3)
+#plt.colorbar(label='digit value')
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Pressure t=end 2D cross section along x direction')
+ax.set_xlabel('x (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0)
+#plt.show()
+plt.savefig('PRE_t=end_2D_cs_xdir.png', dpi=150)
+
+# 2D cross section along y direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(X, Z, P_Ycs3)
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Pressure t=end 2D cross section along y direction')
+ax.set_xlabel('y (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0) 
+#plt.show()
+plt.savefig('PRE_t=end_2D_cs_ydir.png', dpi=150)
+
+#*********** COMPARISON PRESSURES *********
+# singleColumn
+fig,ax=plt.subplots()                               # Create a figure containing a single axes
+ax.plot(sCol12, zlist, label='col_1a') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol22, zlist, label='col_2a')
+ax.plot(sCol32, zlist, label='col_3a')
+ax.plot(sCol42, zlist, label='col_4a')
+ax.plot(sCol13, zlist, label='col_1b',linestyle='--') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol23, zlist, label='col_2b',linestyle='--')
+ax.plot(sCol33, zlist, label='col_3b',linestyle='--')
+ax.plot(sCol43, zlist, label='col_4b',linestyle='--')
+ax.set_ylabel('z (m)')
+ax.set_xlabel('Pressure (m)')
+ax.set_title("Pressure t=end, 4 single columns comparison")
+ax.legend()
+#plt.ylabel('z (m)')
+#plt.xlabel('Pressure (m)')
+#col1_legend = ax.legend(handles=[line1], loc='upper right')
+#ax.legend(labels='column 1')
+#plt.show()
+plt.savefig('PRE_t=end_SingleColumns.png', dpi=150)
+
+
+
+## PLOTS FOR END TIME: SATURATIONS DATA4-ref and DATA5  ****************************************************************************
+# Set Z, Y, and X to some values
+# Slice a 2D cross section along x direction (fix y coord)
+P_Xcs5 = data5[:,100,:]
+
+# Slice a 2D cross section along y direction (fix x coord)
+P_Ycs5 = data5[:,:,100] #crossSection = data[...,X]
+
+# Slice a 1D collumn (all z values for given x and y coord) DATA4ref
+sCol14 = data4[:,CX_minref,CX_minref]     # single column 1
+sCol24 = data4[:,CX_minref,CX_maxref]     # single column 2
+sCol34 = data4[:,CX_maxref,CX_minref]     # single column 3
+sCol44 = data4[:,CX_maxref,CX_maxref]     # single column 4
+
+# Slice a 1D collumn (all z values for given x and y coord) DATA5
+sCol15 = data5[:,CX_min,CX_min]     # single column 1
+sCol25 = data5[:,CX_min,CX_max]     # single column 2
+sCol35 = data5[:,CX_max,CX_min]     # single column 3
+sCol45 = data5[:,CX_max,CX_max]     # single column 4
+
+# Do some plotting
+# 2D cross section along x direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(Y, Z, P_Xcs5)
+#plt.colorbar(label='digit value')
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Saturation t=end 2D cross section along x direction')
+ax.set_xlabel('x (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0)
+#plt.show()
+plt.savefig('SAT_t=end_2D_cs_xdir.png', dpi=150)
+
+# 2D cross section along y direction
+fig,ax=plt.subplots(1,1)
+cp = ax.contourf(X, Z, P_Ycs5)
+fig.colorbar(cp) # Add a colorbar to a plot
+ax.set_title('Saturation t=end 2D cross section along y direction')
+ax.set_xlabel('y (m)')
+ax.set_ylabel('z (m)')
+#plt.clim(-10, 0) 
+#plt.show()
+plt.savefig('SAT_t=end_2D_cs_ydir.png', dpi=150)
+
+#*********** COMPARISON SATURATIONS ********
+# singleColumn
+fig,ax=plt.subplots()                               # Create a figure containing a single axes
+ax.plot(sCol14, zlist, label='col_1a') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol24, zlist, label='col_2a')
+ax.plot(sCol34, zlist, label='col_3a')
+ax.plot(sCol44, zlist, label='col_4a')
+ax.plot(sCol15, zlist, label='col_1b',linestyle='--') # Plot some data on the axes , linestyle='--'
+ax.plot(sCol25, zlist, label='col_2b',linestyle='--')
+ax.plot(sCol35, zlist, label='col_3b',linestyle='--')
+ax.plot(sCol45, zlist, label='col_4b',linestyle='--')
+ax.set_xlim(0, 1)
+ax.set_ylabel('z (m)')
+ax.set_xlabel('Saturation (/)')
+ax.set_title("Saturation t=end, 4 single columns comparison")
+ax.legend()
+#plt.ylabel('z (m)')
+#plt.xlabel('Pressure (m)')
+#col1_legend = ax.legend(handles=[line1], loc='upper right')
+#ax.legend(labels='column 1')
+#plt.show()
+plt.savefig('SAT_t=end_SingleColumns.png', dpi=150)
+
+
+# ERROR CALCULATION
+# L2 NORM
+# take square of differences and sum them
+l2_sc1_pre_tend = np.sum(np.power((sCol12-sCol13),2))
+l2_sc2_pre_tend = np.sum(np.power((sCol22-sCol23),2))
+l2_sc3_pre_tend = np.sum(np.power((sCol32-sCol33),2))
+l2_sc4_pre_tend = np.sum(np.power((sCol42-sCol43),2))
+##print('L2 norm for pressure and four single columns:')
+##print('Col_1: ', l2_sc1_pre_tend)
+##print('Col_2: ', l2_sc2_pre_tend)
+##print('Col_3: ', l2_sc3_pre_tend)
+##print('Col_4: ', l2_sc4_pre_tend)
+
+l2_sc1_sat_tend = np.sum(np.power((sCol14-sCol15),2))
+l2_sc2_sat_tend = np.sum(np.power((sCol24-sCol25),2))
+l2_sc3_sat_tend = np.sum(np.power((sCol34-sCol35),2))
+l2_sc4_sat_tend = np.sum(np.power((sCol44-sCol45),2))
+##print('L2 norm for saturation and four single columns:')
+##print('Col_1: ', l2_sc1_sat_tend)
+##print('Col_2: ', l2_sc2_sat_tend)
+##print('Col_3: ', l2_sc3_sat_tend)
+##print('Col_4: ', l2_sc4_sat_tend)
+
+# Print L2 norm results to a file
+with open('L2_norm_errors.txt', 'w') as f:
+    print('L2_norm for pressure t=end and four single columns:', file=f)
+    print('Col_1: ', l2_sc1_pre_tend, file=f)
+    print('Col_2: ', l2_sc2_pre_tend, file=f)
+    print('Col_3: ', l2_sc3_pre_tend, file=f)
+    print('Col_4: ', l2_sc4_pre_tend, file=f)
+    print('L2 norm for saturation t=end and four single columns:', file=f)
+    print('Col_1: ', l2_sc1_sat_tend, file=f)
+    print('Col_2: ', l2_sc2_sat_tend, file=f)
+    print('Col_3: ', l2_sc3_sat_tend, file=f)
+    print('Col_4: ', l2_sc4_sat_tend, file=f)
+    
+    
+#READYCHECK#

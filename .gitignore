@@ -1,0 +1,4 @@
+bench_run/
+pfdir_gpu_S2022_ompi/
+pfdir_gpu_S2022_psmpi/
+

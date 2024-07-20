@@ -1,0 +1,7 @@
+[submodule "src/rmm"]
+	path = src/rmm
+	url = https://github.com/hokkanen/rmm.git
+	branch = branch-0.10
+[submodule "src/parflow"]
+	path = src/parflow
+	url = https://github.com/parflow/parflow.git

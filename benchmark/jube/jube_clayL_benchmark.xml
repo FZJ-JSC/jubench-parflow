@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Parflow for JUWELS -->
+<jube>
+  <benchmark name="parflow_clayL" outpath="bench_run">
+      
+    <!-- Compile Configuration: parameters need to be adjusted -->
+    <parameterset name="compileParameter">
+      <parameter name="stages">2022</parameter>                      <!-- *** choose stage: 2022 -->
+      <parameter name="compiler">GCC</parameter>                   <!-- *** choose compiler: Intel, GCC -->
+      <parameter name="mpi">ParaStationMPI</parameter>                      <!-- *** choose MPI: OpenMPI or ParaStationMPI -->
+      <parameter name="misc_modules">CUDA UCX-settings/RC-CUDA CMake Tcl Hypre netCDF</parameter>    <!-- *** provide additional modules -->
+      <parameter name="install_script">install_parflow_gpu</parameter>
+    </parameterset>
+  
+    <!-- Sbatch Configuration: parameters need to be adjusted -->
+    <parameterset name="systemParameter" init_with="platform.xml">
+      <parameter name="account">jscbenchmark</parameter>             <!-- *** account needs to be adjusted -->      
+      <parameter name="queue">booster</parameter>                    <!-- *** develbooster or booster for juwels_booster -->
+      <parameter name="nodes">1,4,9,16</parameter>                     
+      <parameter name="taskspernode">4</parameter>
+      <parameter name="total_tasks" mode="python" type="int">$nodes*$taskspernode</parameter>      
+      <parameter name="total_gpus" mode="python" type="int">$nodes*$taskspernode</parameter>
+      <parameter name="gres">gpu:${taskspernode}</parameter>       
+      <parameter name="timelimit">03:00:00</parameter>      
+      <parameter name="batch_file">runmod_juwels</parameter>         <!-- *** Name Sbatch file --> 
+      <parameter name="env" separator="###random_separator###" >
+        PF_DIR_${mpi}=$jube_benchmark_home/pfdir_gpu_S${stages}_${compiler}_${mpi}/install
+        export PARFLOW_DIR=$PF_DIR_${mpi}
+        export PARFLOW_USE_GPUDIRECT=1
+        ml Stages/${stages} ${compiler} ${mpi} ${misc_modules}
+	module list
+        ln -s $jube_benchmark_home/pfdir_gpu_S${stages}_${compiler}_${mpi}/install/bin/parflow ./parflow_${mpi}
+        # Add UCX variables
+        export UCX_TLS=rc_x,cuda_ipc,gdr_copy,self,sm,cuda_copy
+        export UCX_MEMTYPE_CACHE=n
+        export UCX_MAX_RNDV_RAILS=1
+      </parameter>
+      <parameter name="preprocess">
+	tclsh ./${name_case}.tcl ${xsplit} ${ysplit} ${nodes} ${cells}
+      </parameter>
+      <parameter name="executable">
+	./parflow_${mpi}
+      </parameter>
+      <parameter name="args_exec">
+	${name_case}
+      </parameter>
+    </parameterset>
+
+    <parameterset name="problemParameter">
+      <parameter name="name_case">clayLmod_strong_10h</parameter>    <!-- *** Name parflow & tcl file -->
+      <parameter name="cells">1008</parameter>
+      <parameter name="cellsref">1008</parameter>                     <!-- *** # cells reference case -->
+      <parameter name="xsplit">2</parameter>
+      <parameter name="ysplit">2</parameter>
+      <parameter name="xmin">25</parameter>                          <!-- *** min. x coordinate for taking observation -->
+      <parameter name="xmax">100</parameter>                         <!-- *** min. x coordinate for taking observation -->
+      <parameter name="xminref">25</parameter>                       <!-- *** min. x coordinate for taking observation ref. case-->
+      <parameter name="xmaxref">100</parameter>                      <!-- *** min. x coordinate for taking observation ref. case-->
+    </parameterset>
+
+    <!-- Parameters to check correctness: parameters need to be adjusted -->
+    <parameterset name="ncParameter">
+      <parameter name="file_name_nc">Read_nc_outputs_with_Python</parameter>
+      <parameter name="file_name_check">Check_correctness_jube_ncfile</parameter>
+      <parameter name="file_name_runpy">run_python</parameter>	  
+    </parameterset>
+	
+    <!-- Load compile files -->
+    <fileset name="copy_install">
+      <copy>../../src/${install_script}.in</copy>
+    </fileset>
+
+    <!-- Parameters to be replaced in compile files -->
+    <substituteset name="sub_install">
+      <iofile in="${install_script}.in" out="${install_script}.sh" />
+      <sub source="#PATH#" dest="$jube_benchmark_home" />
+      <sub source="#STAGES#" dest="$stages" />
+      <sub source="#COMPILER#" dest="$compiler" />
+      <sub source="#MPI#" dest="$mpi" />
+      <sub source="#MISC_MODULES#" dest="$misc_modules" />
+    </substituteset>  
+	
+    <!-- STEP Compilation -->
+    <step name="COMPILE">
+      <use>compileParameter</use> 
+      <use tag="!skip_compile">copy_install,sub_install</use>	
+      <do  tag="!skip_compile">bash ${install_script}.sh</do>  
+      <do  tag="skip_compile">ln -s $jube_benchmark_home/pfdir_gpu_S${stages}_${compiler}_${mpi}/install/bin/parflow ./parflow_${mpi}</do>       <!--   *** Dummy command that we need when skipping compile step -->
+    </step> 
+
+    <!-- Input files to run parflow -->
+    <fileset name="parflow_run">
+      <copy>../../src/$name_case.tcl</copy>  
+    </fileset>
+       
+    <!-- STEP Operation -->
+    <step name="RUN" depend="COMPILE">
+      <use from="platform.xml">executeset</use>
+      <use>systemParameter</use>
+      <use>problemParameter</use>
+      <use>parflow_run</use>                      <!-- use existing files -->
+      <use from="platform.xml">jobfiles</use>
+      <use from="platform.xml">executesub</use>
+      <do>
+        ${submit} ${submit_script}
+      </do>
+      <do done_file="$name_case.out.00001.nc">echo "Done RUN step"</do>  <!-- Notify that is done RUN STEP -->
+    </step>    
+
+    <!-- Load nc-Check files -->
+    <fileset name="files_nc">
+      <copy>../eval/${file_name_nc}.in</copy>
+      <copy>../eval/${file_name_check}.in</copy>
+      <copy>../eval/${file_name_runpy}.in</copy>	  
+    </fileset>
+
+    <!-- Parameters to be replaced in run python file -->
+    <substituteset name="sub_runpy">
+      <iofile in="${file_name_runpy}.in" out="$file_name_runpy.sh" />
+      <sub source="#NAMEFILENC#" dest="$file_name_nc" />
+      <sub source="#NAMEFILECHECK#" dest="$file_name_check" />	  
+    </substituteset> 
+
+    <!-- Parameters to be replaced in nc file -->
+    <substituteset name="sub_nc">
+      <iofile in="${file_name_nc}.in" out="$file_name_nc.py" />
+      <sub source="#NAME#" dest="$name_case" />
+      <sub source="#PATHNC#" dest="$jube_wp_abspath" />
+      <sub source="#READYNC#" dest="#ready_nc" />	  
+    </substituteset> 
+ 
+    <!-- Parameters to be replaced in check results -->
+    <substituteset name="sub_check">
+      <iofile in="${file_name_check}.in" out="$file_name_check.py" />
+      <sub source="#NXCELLSREF#" dest="$cellsref" />	  
+      <sub source="#NXCELLS#" dest="$cells" />
+      <sub source="#XMIN#" dest="$xmin" />
+      <sub source="#XMAX#" dest="$xmax" />	  
+      <sub source="#XMINREF#" dest="$xminref" />
+      <sub source="#XMAXREF#" dest="$xmaxref" />		  
+      <sub source="#NODES#" dest="$nodes" />
+      <sub source="#SPLIT#" dest="$xsplit" />
+      <sub source="#PATHREF#" dest="$jube_wp_abspath" />	<!-- needs to be changed -->   
+      <sub source="#READYCHECK#" dest="#ready_check" />	  
+    </substituteset> 
+
+    <fileset name="python_run">
+      <copy>../eval/$file_name_runpy.in</copy>	
+      <copy>../eval/$file_name_nc.in</copy>
+      <copy>../eval/$file_name_check.in</copy>	  
+    </fileset>
+
+    <!-- STEP Operation -->
+    <step name="CHECK" depend="RUN">
+      <use>python_run</use>                                    <!-- use existing files -->
+      <use>ncParameter</use>                                   <!-- use existing parameter set -->
+      <use>files_nc,sub_runpy,sub_nc,sub_check</use>           <!-- use nc & check files with replaced parameters -->	  
+      <do>mv RUN/*.nc .</do>	  
+      <do>bash $file_name_runpy.sh</do>	  
+    </step>    
+
+    <!-- Create a pattern for results -->    
+    <patternset name="times_pattern">
+      <!-- read from out.timing.csv file -->
+      <pattern name="Solver_Setup" type="float">Solver Setup,$jube_pat_fp</pattern>
+      <pattern name="Solver" type="float">Solver,$jube_pat_fp</pattern>
+      <pattern name="Stable_solver" type="float">Richards Exclude 1st Time Step,$jube_pat_fp</pattern>
+      <pattern name="Solver_Cleanup" type="float">Solver Cleanup,$jube_pat_fp</pattern>
+      <pattern name="Matvec" type="float">Matvec,$jube_pat_fp</pattern>
+      <pattern name="PFSB_IO" type="float">PFSB I/O,$jube_pat_fp</pattern>
+      <pattern name="PFB_IO" type="float">PFB I/O,$jube_pat_fp</pattern>
+      <pattern name="CLM" type="float">CLM,$jube_pat_fp</pattern>
+      <pattern name="PFSOL_Read" type="float">PFSOL Read,$jube_pat_fp</pattern>
+      <pattern name="Clustering" type="float">Clustering,$jube_pat_fp</pattern>
+      <pattern name="Perm_Face" type="float">Permeability Face,$jube_pat_fp</pattern>
+      <pattern name="Godunov_Adv" type="float">Godunov Advection,$jube_pat_fp</pattern>
+      <pattern name="Geometries" type="float">Geometries,$jube_pat_fp</pattern>
+      <pattern name="SubsrfSim" type="float">SubsrfSim,$jube_pat_fp</pattern>
+      <pattern name="Porosity" type="float">Porosity,$jube_pat_fp</pattern>
+      <pattern name="PhaseRelPerm" type="float">PhaseRelPerm,$jube_pat_fp</pattern>
+      <pattern name="MGSemi" type="float">MGSemi,$jube_pat_fp</pattern>
+      <pattern name="NL_F_Eval" type="float">NL_F_Eval,$jube_pat_fp</pattern>
+      <pattern name="KINSol" type="float">KINSol,$jube_pat_fp</pattern>
+      <pattern name="Total_Time" type="float">Total Runtime,$jube_pat_fp</pattern>
+      <!-- read from out.kinsol.log file -->	  
+      <!-- since we wisht to write a statistic value (total sum), we need to describe them as floating number even if they are integers -->	
+      <pattern name="Nonlin_its" type="float">Nonlin. Its.:\s+$jube_pat_int</pattern>	
+      <pattern name="Lin_its" type="float">Lin. Its.:\s+$jube_pat_int</pattern>	 
+      <pattern name="Func_evals" type="float">Func. Evals.:\s+$jube_pat_int</pattern>	
+      <pattern name="PC_evals" type="float">PC Evals.:\s+$jube_pat_int</pattern>	
+      <pattern name="PC_solves" type="float">PC Solves:\s+$jube_pat_int</pattern>
+      <pattern name="Lin_conv_fails" type="float">Lin. Conv. Fails:\s+$jube_pat_int</pattern>
+      <pattern name="Beta_cond_fails" type="float">Beta Cond. Fails:\s+$jube_pat_int</pattern>
+      <pattern name="Backtracks" type="float">Backtracks:\s+$jube_pat_int</pattern>	  
+    </patternset>
+
+    <analyser name="times_analyser"> 
+      <use>times_pattern</use>
+      <analyse step="RUN">
+        <file>$name_case.out.timing.csv</file>   <!-- *** output file with times clayLmod.out.timing.csv -->
+        <file>$name_case.out.kinsol.log</file>   <!-- *** output file with times clayLmod.out.kinsol.log -->		
+      </analyse>
+    </analyser>
+
+    <result>
+      <use>times_analyser</use>
+      <table name="extended_result_table" style="csv">     <!-- style="pretty"> -->
+        <!-- Results from parameters -->
+        <column>stages</column>
+        <column>queue</column>
+        <column>mpi</column>      
+        <column>batch_file</column>
+        <column>name_case</column>
+        <column>nodes</column>
+	<column>taskspernode</column>
+        <column>gres</column>
+        <column>xsplit</column>
+        <column>ysplit</column>
+        <column>cells</column>
+        <!-- Results from out.timing.csv file -->
+        <column format=".2f">Solver_Setup</column> 
+        <column format=".2f">Solver</column> 
+        <column format=".2f">Stable_solver</column> 
+        <column format=".2f">Solver_Cleanup</column> 
+        <column format=".2f">Matvec</column> 
+        <column format=".2f">PFSB_IO</column> 
+        <column format=".2f">PFB_IO</column> 
+        <column format=".2f">CLM</column> 
+        <column format=".2f">PFSOL_Read</column> 
+        <column format=".2f">Clustering</column> 
+        <column format=".2f">Perm_Face</column> 
+        <column format=".2f">Godunov_Adv</column> 
+        <column format=".2f">Geometries</column> 
+        <column format=".2f">SubsrfSim</column> 
+        <column format=".2f">Porosity</column> 
+        <column format=".2f">PhaseRelPerm</column> 
+        <column format=".2f">MGSemi</column> 
+        <column format=".2f">NL_F_Eval</column> 
+        <column format=".2f">KINSol</column> 
+        <column format=".2f">Total_Time</column> 
+        <!-- Results from out.kinsol.log file -->	  
+        <column format=".0f">Nonlin_its_sum</column> 	
+        <column format=".0f">Lin_its_sum</column>	
+        <column format=".0f">Func_evals_sum</column> 	
+        <column format=".0f">PC_evals_sum</column>		
+        <column format=".0f">PC_solves_sum</column> 	
+        <column format=".0f">Lin_conv_fails_sum</column>	
+        <column format=".0f">Beta_cond_fails_sum</column> 	
+        <column format=".0f">Backtracks_sum</column>			
+      </table>
+      <table name="short_result_table" style="csv">
+        <!-- Results from parameters -->
+        <column>nodes</column>
+        <column>taskspernode</column>
+	<column>total_tasks</column>
+	<column>total_gpus</column>
+	<column format=".2f">Total_Time</column>
+        <column format=".2f">Stable_solver</column>
+      </table>
+    </result>    
+             
+  </benchmark>
+</jube>
+ 

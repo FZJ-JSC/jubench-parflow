@@ -1,0 +1,5 @@
+nodes,taskspernode,total_tasks,total_gpus,Total_Time,Stable_solver
+1,4,4,4,732.78,265.88
+4,4,16,16,319.96,105.08
+9,4,36,36,294.02,71.98
+16,4,64,64,328.92,63.61

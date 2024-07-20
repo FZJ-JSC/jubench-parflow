@@ -1,0 +1,8 @@
+ml Python
+ml netcdf4-python
+ml matplotlib
+ml IPython
+module list
+
+python #NAMEFILENC#.py
+python #NAMEFILECHECK#.py
